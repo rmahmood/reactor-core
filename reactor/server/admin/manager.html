@@ -13,12 +13,22 @@
     </div>
 </div>
 
+<!-- <div class="control-group"> -->
+<!--     <label class="control-label" for="config">Config</label> -->
+<!--     <div class="controls"> -->
+<!--         <textarea rows="10" id="config" class="input-xxlarge"></textarea> -->
+<!--         <button id="configSave" class="btn" type="submit">Save</button> -->
+<!--     </div> -->
+<!-- </div> -->
+
+<!-- Slot for dynamically generated configuration. -->
 <div class="control-group">
-    <label class="control-label" for="config">Config</label>
-    <div class="controls">
-        <textarea rows="10" id="config" class="input-xxlarge"></textarea>
-        <button id="configSave" class="btn" type="submit">Save</button>
+  <label class="control-label" for="dynamic-conf">Configuration</label>
+  <div class="controls" id="dynamic-conf-container">
+    <div class="alert alert-info">
+      Fetching configuration keys...
     </div>
+  </div>
 </div>
 
 <div class="control-group">
@@ -47,7 +57,92 @@
 
 </div>
 
+<script src="/admin/assets/conf.js"></script>
 <script type="text/javascript">
+
+    var conf_js_obj =
+        { "loadbalancer:nginx" :
+          {
+              "config_path":
+              {
+                  "type": "text",
+                  "description": "Path to the nginx configuration file.",
+                  "default": "/etc/nginx/nginx.conf",
+                  "value": "/test/path",
+                  "error": null
+              },
+              "site_path":
+              {
+                  "type": "url",
+                  "description": "Nginx virtual site url.",
+                  "default": "http://example.com",
+                  "error": null
+              }
+          },
+          "loadbalancer:dnsmasq":
+          {
+              "config_path":
+              {
+                  "type": "text",
+                  "description": "Path to dnsmasq configuration file.",
+                  "default": "/etc/dnsmasq.conf"
+              },
+              "hosts_path":
+              {
+                  "type": "text",
+                  "description": "Path to the system hosts file.",
+                  "default": "/etc/hosts"
+              }
+          },
+          "manager":
+          {
+              "loadbalancer":
+              {
+                  "type": "multichoice",
+                  "description": "Load balancers to use for this endpoint.",
+                  "options": [ "nginx", "dnsmasq" ]
+              },
+              "unregistered_wait":
+              {
+                  "type": "number",
+                  "description": "The number of 'health_check' intervals to wait before " +
+                                 "considering a newly created instance as having failed to register.",
+                  "default": 20
+              },
+              "decommissioned_wait":
+              {
+                  "type": "number",
+                  "description": "The number of 'health_check' interval to wait before " +
+                                 "destroying a decommissioned instance.",
+                  "default": 20
+              },
+              "health_check":
+              {
+                  "type": "number",
+                  "description": "The instance monitoring interval in seconds.",
+                  "default": 5
+              },
+              "keys":
+              {
+                  "type": "number",
+                  "description": "The number of keys this manager should manage.",
+                  "default": 64
+              },
+              "ips":
+              {
+                  "type": "list",
+                  "description": "The IPs on the public interface.",
+              }
+          }
+        }
+
+    // Dynamically construct config UI based on spec we got back from the server.
+    var context = beginMakeConfig("dynamic-conf-container",
+                                  {"loadbalancer": "Load Balancer"},
+                                  "/v1.0/managers/spec",
+                                  "/v1.0/managers/${object}/config");
+                                  <!-- JSON.parse(JSON.stringify(conf_js_obj))); -->
+
     function loadUuid() {
         $.ajax({
             url: "/v1.0/managers/${object}",
