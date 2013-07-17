@@ -203,7 +203,8 @@ class MockZookeeper(object):
             try:
                 cursor = cursor.children[comp]
             except:
-                raise MockZookeeper.NoNodeException()
+                raise MockZookeeper.NoNodeException(
+                    "Node '%s' not found" % "/".join([path_so_far, comp]))
             path_so_far += cursor.name
         # We got to the end, so we must've found our node.
         return cursor
@@ -302,10 +303,11 @@ use_mock()
 
 class ZkEvent(object):
     """
+    Context for monitoring zookeeper events.
+
     A context object for waiting for a particular zookeeper watch to be
-    triggered. This is useful for synchronizing bits of tests which rely on
-    reactor having received particular zookeeper notifications prior to
-    asserting reactor state.
+    triggered. This is useful for synchronizing test code around reactor
+    receiving particular zookeeper notifications.
 
     This mechanism works by appending a private callback to the zookeeper watch
     callbacks list for the specified path. When this callback is called, we can
@@ -314,6 +316,7 @@ class ZkEvent(object):
     the special callback and some other reactor code installing a callback after
     ours by replacing the callback list with a special object which is guranteed
     to always return our callback last for the scope of the context.
+
     """
 
     class ConstLastList(list):
@@ -339,28 +342,52 @@ class ZkEvent(object):
             """
             return list(self[:])
 
-    def __init__(self, zk_conn, path, expt_value=None):
-        self.zk_conn = zk_conn
+    def __init__(self, zk_conns, path, expt_value=None, target_count=1, compare="equal"):
+        """
+        Args:
+            zk_conns: List of reactor zookeeper connections
+                (reactor.zookeeper.ZookeeperConnection objects) which are expecting
+                the event. If a single connection object is passed, it will be
+                automatically boxed into a list.
+            path: Zookeeper path to monitor for events.
+            expt_value: The expected result of the zookeeper watch function. How
+                this value is compared to the actual result is controlled by the
+                'compare' argument.
+            target_count: Number of times we need to see the event before proceeding.
+            compare: String name of one of the static comparison methods defined in
+                this class. Currently these are "equal" and "contains".
+        """
+        if not isinstance(zk_conns, list):
+            zk_conns = [zk_conns]
+        self.zk_conns = zk_conns
         self.path = path
         self.cond = Condition()
-        self.result = None
+        self.result = []
+        self.target_count = target_count
         self.expt_value = expt_value
+        self.compare = getattr(self, compare)
+
+    @staticmethod
+    def equal(expected, value):
+        if isinstance(expected, list):
+            return sorted(expected) == sorted(value)
+        else:
+            return expected == value
+
+    @staticmethod
+    def contains(expected, value):
+        return expected in value
 
     def __call__(self, result):
         self.cond.acquire()
         try:
             if self.expt_value is not None:
-                if isinstance(self.expt_value, list):
-                    match = sorted(result) == sorted(self.expt_value)
-                else:
-                    match = result == expt_value
-
-                if not match:
+                if not self.compare(self.expt_value, result):
                     logging.warning(
                         "Got zk event with result %s, didn't match expt result %s." % \
                             (str(result), str(self.expt_value)))
                     return
-            self.result = result
+            self.result.append(result)
             self.cond.notifyAll()
         finally:
             self.cond.release()
@@ -368,19 +395,28 @@ class ZkEvent(object):
     def __enter__(self):
         # Since we're running a test where we expect a particular zookeeper
         # event, there must be some reactor callback registered for the path.
-        self.zk_conn.watches[self.path] = \
-            ZkEvent.ConstLastList(self.zk_conn.watches[self.path], self)
+        for conn in self.zk_conns:
+            conn.watches[self.path] = \
+                ZkEvent.ConstLastList(conn.watches[self.path], self)
         return self
 
     def __exit__(self, *args):
         self.wait()
-        self.zk_conn.watches[self.path] = \
-            self.zk_conn.watches[self.path].unbox()
+        for conn in self.zk_conns:
+            try:
+                conn.watches[self.path] = conn.watches[self.path].unbox()
+            except AttributeError:
+                # Sometimes, the reactor-side zk watch is removed or
+                # destroyed as a result of the event. In this case, we
+                # don't need to clean up our callback.
+                pass
 
     def wait(self):
         self.cond.acquire()
-        logging.debug("Waiting for zk event on path '%s'." % self.path)
-        while self.result is None:
+        logging.debug("Waiting for zk events on path '%s'." % self.path)
+        while len(self.result) < self.target_count:
+            logging.debug("Received %d of %d events on '%s'." % \
+                (len(self.result), self.target_count, self.path))
             self.cond.wait()
-        logging.debug("Observed zk event on path '%s'." % self.path)
+        logging.debug("Observed required zk events on path '%s'." % self.path)
         self.cond.release()

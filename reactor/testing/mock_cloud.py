@@ -14,10 +14,10 @@ def instance_sequencer():
         yield current
 
 def ip_to_int(ip):
-    return struct.unpack("!I", inet_aton(ip))[0]
+    return unpack("!I", inet_aton(ip))[0]
 
 def int_to_ip(ip_int):
-    return inet_ntoa(struct.pack("!I", ip_int))
+    return inet_ntoa(pack("!I", ip_int))
 
 def ip_range_generator(base, count):
     base_ip = ip_to_int(base)
@@ -26,6 +26,8 @@ def ip_range_generator(base, count):
     while current < max_ip:
         yield int_to_ip(current)
         current += 1
+    raise ValueError("No more IPs to allocate from range [%s, %s) (%d addresses)" % \
+        (int_to_ip(base_ip), int_to_ip(max_ip), count))
 
 class MockCloudConnection(CloudConnection):
     def __init__(self, config=None):
@@ -33,6 +35,7 @@ class MockCloudConnection(CloudConnection):
         CloudConnection.__init__(self, name, config=config)
         self.instances = {} # map(instance.id => MockInstance)
         self.ip_generator = ip_range_generator('172.16.0.1', 255)
+        self.seq_generator = instance_sequencer()
 
     def id(self, config, instance):
         return instance.id
@@ -52,7 +55,7 @@ class MockCloudConnection(CloudConnection):
     def start_instance(self, config, params={}, ip=None, instance_id=None, name=None):
         generated_id = str(uuid4())
         instance = MockInstance(
-            sequence = instance_sequencer(),
+            sequence = self.seq_generator.next(),
             name = name or generated_id,
             id = instance_id or generated_id,
             addresses = [ip or self.ip_generator.next()],

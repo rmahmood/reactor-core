@@ -45,6 +45,10 @@ def endpoint_config():
     return endpoint.EndpointConfig()
 
 @pytest.fixture
+def scaling_config():
+    return endpoint.ScalingConfig()
+
+@pytest.fixture
 def reactor_zkclient(request):
     client = ReactorClient([harness.LOCAL_ZK_ADDRESS])
     def cleanup_client():
