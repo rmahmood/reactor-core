@@ -1,8 +1,13 @@
 from reactor.testing import harness
+from reactor.testing.zookeeper import MockZookeeper, ZkEvent
 from reactor.loadbalancer.connection import LoadBalancerConnection
 from reactor.zookeeper import paths
 
 class TestManager(object):
+    """
+    These set of tests run on a single manager and test basic manager
+    functionality.
+    """
     def test_find_loadbalancer_connection(self, scale_manager):
         # Default connection object should be None
         assert scale_manager._find_loadbalancer_connection() is not None
@@ -36,8 +41,10 @@ class TestManager(object):
         ip = '172.16.0.100' # Candidate IP.
         instance = harness.start_instance(scale_manager, mock_endpoint, ip=ip)
 
-        with harness.ZkEvent(scale_manager.zk_conn, paths.new_ips(), expt_value=[ip]):
+        with ZkEvent(
+            scale_manager.zk_conn, paths.confirmed_ips(mock_endpoint.name),
+            expt_value=[ip]):
             # 'Register' by writing ip into zk, (as the external API call would).
             reactor_zkclient.record_new_ip_address(ip)
 
-        assert ip in scale_manager.confirmed[mock_endpoint.name]
+        assert ip in scale_manager.active_ips(mock_endpoint.name)

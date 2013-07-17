@@ -31,7 +31,7 @@ install: dist
 .PHONY: install
 
 test:
-	reactor/testing/py.test $(PYTEST_FLAGS)
+	reactor/testing/py.test $(PYTEST_FLAGS) reactor
 .PHONY: test
 
 dist_install: dist_clean
